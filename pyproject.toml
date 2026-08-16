@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "paper-explorer"
+name = "paper_explorer"
 version = "0.1.0"
 description = "Intelligent Research Paper Finder: crawl, embed, search, and summarize academic papers."
 readme = "README.md"
