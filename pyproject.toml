@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Sujan Kapali"}]
-dependencies = []
+dependencies = [
+    "requests>=2.31",
+    "feedparser>=6.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paper_explorer"]
