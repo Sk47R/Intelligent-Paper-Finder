@@ -92,6 +92,12 @@ def _print_results(results: list[tuple]) -> None:
     console.print(table)
 
 
+def cmd_ui(args: argparse.Namespace) -> None:
+    from paper_explorer.ui.tui import run_ui
+
+    run_ui(args.store)
+    
+    
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paper_explorer", description="Intelligent Research Paper Explorer"
@@ -121,12 +127,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_topics = subparsers.add_parser("topics", help="Discover and summarize topics in the store")
     p_topics.add_argument("--n-topics", type=int, default=5)
     p_topics.set_defaults(func=cmd_topics)
+    
+    p_ui = subparsers.add_parser("ui", help="Launch the interactive terminal UI")
+    p_ui.set_defaults(func=cmd_ui)
 
     p_plot = subparsers.add_parser("plot", help="Generate visualizations (saved as PNG files)")
     p_plot.add_argument("--n-topics", type=int, default=5)
     p_plot.set_defaults(func=cmd_plot)
 
     return parser
+
 
 
 def main(argv: list[str] | None = None) -> int:
