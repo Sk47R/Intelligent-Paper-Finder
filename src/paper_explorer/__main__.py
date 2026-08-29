@@ -1,6 +1,4 @@
-def main() -> int:
-    print("paper_finder: package skeleton.")
-    return 0
+from paper_explorer.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

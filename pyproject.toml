@@ -16,7 +16,13 @@ dependencies = [
     "numpy>=1.26",
     "sentence-transformers>=2.6",
     "scikit-learn>=1.4",
+    "matplotlib>=3.8",
+    "rich>=13.7",
+
 ]
+
+[project.scripts]
+paper-explorer = "paper_explorer.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paper_explorer"]
