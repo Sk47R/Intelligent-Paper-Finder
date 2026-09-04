@@ -27,5 +27,14 @@ paper-explorer = "paper_explorer.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/paper_explorer"]
 
+
+
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
