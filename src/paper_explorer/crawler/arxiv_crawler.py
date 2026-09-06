@@ -14,10 +14,10 @@ class ArxivCrawler:
     def __init__(self, page_size: int = 100, delays_seconds: float = 3.0):
         self.page_size = page_size
         self.delay_seconds = delays_seconds
-        
+
     def search(self, query: str, max_results: int = 100) -> list[Paper]:
         return [self._entry_to_paper(entry) for entry in self._iter_entries(query, max_results)]
-    
+
     def _iter_entries(self, query: str, max_results: int) -> Iterator[dict]:
         fetched = 0
         while fetched < max_results:
@@ -32,22 +32,22 @@ class ArxivCrawler:
             response = requests.get(ARXIV_API_URL, params = params, timeout = 30)
             response.raise_for_status()
             feed = feedparser.parse(response.text)
-            
+
             if not feed.entries:
                 break
             yield from feed.entries
             fetched += len(feed.entries)
-            
+
             if len(feed.entries) < batch:
                 break
             time.sleep(self.delay_seconds)
-            
-    
+
+
     @staticmethod
     def _entry_to_paper(entry) -> Paper:
         arxiv_id = entry.id.split("/abs/")[-1]
         categories = [tag["term"] for tag in entry.get("tags", [])]
-        
+
         return Paper(
             paper_id = arxiv_id,
             title = " ".join(entry.title.split()),
@@ -58,5 +58,5 @@ class ArxivCrawler:
             url = entry.get("link"),
             source = "arxiv",
         )
-            
-            
+
+

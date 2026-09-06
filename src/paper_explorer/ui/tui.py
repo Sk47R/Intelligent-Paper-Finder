@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from rich.console import Console
 from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
+
 from paper_explorer.data.storage import PaperStore
 from paper_explorer.search.engine import SearchEngine
 

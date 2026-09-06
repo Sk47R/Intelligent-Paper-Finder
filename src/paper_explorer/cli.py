@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import argparse
 import sys
+
 from rich.console import Console
 from rich.table import Table
+
 from paper_explorer.config import DEFAULT_PLOTS_DIR, DEFAULT_STORE_PATH
 from paper_explorer.crawler.arxiv_crawler import ArxivCrawler
 from paper_explorer.data.storage import PaperStore
@@ -96,8 +99,8 @@ def cmd_ui(args: argparse.Namespace) -> None:
     from paper_explorer.ui.tui import run_ui
 
     run_ui(args.store)
-    
-    
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="paper_explorer", description="Intelligent Research Paper Explorer"
@@ -127,7 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_topics = subparsers.add_parser("topics", help="Discover and summarize topics in the store")
     p_topics.add_argument("--n-topics", type=int, default=5)
     p_topics.set_defaults(func=cmd_topics)
-    
+
     p_ui = subparsers.add_parser("ui", help="Launch the interactive terminal UI")
     p_ui.set_defaults(func=cmd_ui)
 

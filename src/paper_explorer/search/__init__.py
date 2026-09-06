@@ -1,2 +1,4 @@
-"""Semantic search and recommendation over embedded papers."""
+"""
+Semantic search and recommendation over embedded papers.
+"""
 
