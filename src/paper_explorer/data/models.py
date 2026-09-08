@@ -11,10 +11,12 @@ class Paper:
     paper_id: str
     title: str
     abstract: str
-    authors: list[str] = field(default_factory = list)
-    categories: list[str] = field(default_factory = list)
+    authors: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
     published: str | None = None
-    url: str | None = None
+    updated: str | None = None
+    pdf_url: str | None = None
+    abstract_url: str | None = None
     source: str = "arxiv"
     embedding: list[float] | None = None
 
