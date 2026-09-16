@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "paper_explorer"
+name = "paper-explorer"
 version = "0.1.0"
-description = "Intelligent Research Paper Finder: crawl, embed, search, and summarize academic papers."
+description = "Intelligent Research Paper Explorer: crawl, embed, search, and summarize academic papers."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Sujan Kapali"}]
+authors = [{ name = "Your Name" }]
 dependencies = [
     "requests>=2.31",
     "feedparser>=6.0",
@@ -19,18 +19,17 @@ dependencies = [
     "matplotlib>=3.8",
     "rich>=13.7",
     "faiss-cpu>=1.7.4",
-
+    "rank-bm25>=0.2.2",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]
 paper-explorer = "paper_explorer.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paper_explorer"]
-
-
-[project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [tool.ruff]
 line-length = 100
