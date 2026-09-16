@@ -1,11 +1,13 @@
-from __future__ import annotations
 import argparse
 import logging
 import sys
 import numpy as np
+
+from __future__ import annotations
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
+
 from paper_explorer.config import (
     DEFAULT_ID_MAP_PATH,
     DEFAULT_INDEX_PATH,
@@ -16,6 +18,8 @@ from paper_explorer.crawler.arxiv_client import ArxivAPIError, ArxivClient
 from paper_explorer.data.models import Paper
 from paper_explorer.data.storage import PaperStore
 from paper_explorer.embeddings.embedding_model import EmbeddingModel
+from paper_explorer.search.bm25_index import BM25Index
+from paper_explorer.search.hybrid import HybridSearcher
 from paper_explorer.search.index import VectorIndex
 from paper_explorer.search.results import SearchResult
 from paper_explorer.search.searcher import PaperSearcher
@@ -26,10 +30,10 @@ logger = logging.getLogger("paper_explorer")
 
 def _setup_logging(verbose: bool) -> None:
     logging.basicConfig(
-        level = logging.DEBUG if verbose else logging.INFO,
-        format = "%(message)s",
-        handlers = [RichHandler(console=console, show_path=False)],
-        force = True,
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_path=False)],
+        force=True,
     )
 
 
@@ -41,10 +45,10 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     try:
         papers = client.search(
             args.query,
-            max_results = args.max_results,
-            start = args.start,
-            category = args.category,
-            raw_dir = None if args.no_raw else args.raw_dir,
+            max_results=args.max_results,
+            start=args.start,
+            category=args.category,
+            raw_dir=None if args.no_raw else args.raw_dir,
         )
     except ArxivAPIError as exc:
         console.print(f"[red]arXiv API error:[/red] {exc}")
@@ -84,36 +88,68 @@ def cmd_search(args: argparse.Namespace) -> None:
         console.print("[red]No papers in store. Run `ingest` first.[/red]")
         raise SystemExit(1)
 
-    try:
-        index = VectorIndex.load(args.index, args.id_map)
-    except (FileNotFoundError, OSError, RuntimeError) as exc:
-        console.print(f"[red]No FAISS index found at {args.index}. Run `ingest` first.[/red]")
-        raise SystemExit(1) from exc
+    bm25_index = BM25Index()
+    bm25_index.build(store.all())
 
-    searcher = PaperSearcher(store=store, index=index)
+    semantic_searcher = None
+    if args.mode in ("semantic", "hybrid"):
+        try:
+            vector_index = VectorIndex.load(args.index, args.id_map)
+        except (FileNotFoundError, OSError, RuntimeError) as exc:
+            console.print(f"[red]No FAISS index found at {args.index}. Run `ingest` first.[/red]")
+            raise SystemExit(1) from exc
+        semantic_searcher = PaperSearcher(store=store, index=vector_index)
+
+    hybrid_searcher = HybridSearcher(store=store, bm25_index=bm25_index, searcher=semantic_searcher)
+
     try:
-        results = searcher.search(args.query, top_k=args.top_k)
+        results = hybrid_searcher.search(
+            args.query,
+            mode=args.mode,
+            top_k=args.top_k,
+            alpha=args.alpha,
+            candidate_k=args.candidate_k,
+        )
     except (ValueError, RuntimeError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise SystemExit(1) from exc
 
-    _print_results(results)
+    _print_results(results, mode=args.mode)
 
 
-def _print_results(results: list[SearchResult]) -> None:
+def _print_results(results: list[SearchResult], mode: str = "semantic") -> None:
     if not results:
         console.print("[yellow]No results.[/yellow]")
         return
 
-    table = Table(title="Search Results")
-    table.add_column("Rank", justify = "right")
-    table.add_column("Score", justify = "right")
+    show_breakdown = mode == "hybrid"
+
+    table = Table(title=f"Search Results ({mode})")
+    table.add_column("Rank", justify="right")
+    if show_breakdown:
+        table.add_column("Semantic", justify="right")
+        table.add_column("Keyword", justify="right")
+        table.add_column("Hybrid", justify="right")
+    else:
+        table.add_column("Score", justify="right")
     table.add_column("arXiv ID")
     table.add_column("Title")
     table.add_column("Published")
+
     for r in results:
         d = r.to_display_dict()
-        table.add_row(str(d["rank"]), d["score"], d["arxiv_id"], d["title"], d["published"])
+        if show_breakdown:
+            table.add_row(
+                str(d["rank"]),
+                d.get("semantic_score", "-"),
+                d.get("keyword_score", "-"),
+                d.get("hybrid_score", "-"),
+                d["arxiv_id"],
+                d["title"],
+                d["published"],
+            )
+        else:
+            table.add_row(str(d["rank"]), d["score"], d["arxiv_id"], d["title"], d["published"])
     console.print(table)
 
     for r in results:
@@ -125,39 +161,60 @@ def _print_results(results: list[SearchResult]) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog = "paper_explorer", description = "Intelligent Research Paper Explorer (Version 1)"
+        prog="paper_explorer", description="Intelligent Research Paper Explorer (Version 2)"
     )
-    parser.add_argument("-v", "--verbose", action = "store_true", help = "Enable debug logging")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument(
-        "--store", default = str(DEFAULT_STORE_PATH), help = "Path to the paper metadata store (JSON)"
-    )
-    parser.add_argument(
-        "--index", default = str(DEFAULT_INDEX_PATH), help = "Path to the FAISS index file"
+        "--store", default=str(DEFAULT_STORE_PATH), help="Path to the paper metadata store (JSON)"
     )
     parser.add_argument(
-        "--id-map", default = str(DEFAULT_ID_MAP_PATH), help = "Path to the FAISS id-map file"
+        "--index", default=str(DEFAULT_INDEX_PATH), help="Path to the FAISS index file"
     )
-    subparsers = parser.add_subparsers(dest = "command", required = True)
+    parser.add_argument(
+        "--id-map", default=str(DEFAULT_ID_MAP_PATH), help="Path to the FAISS id-map file"
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_ingest = subparsers.add_parser(
-        "ingest", help = "Crawl arXiv, embed papers, and build the FAISS index"
+        "ingest", help="Crawl arXiv, embed papers, and build the FAISS index"
     )
-    p_ingest.add_argument("--query", required=True, help = "Free-text arXiv search query")
-    p_ingest.add_argument("--max-results", type = int, default = 100)
-    p_ingest.add_argument("--start", type = int, default = 0, help = "Offset into arXiv's result set")
-    p_ingest.add_argument("--category", default = None, help = "Optional arXiv category, e.g. cs.LG")
+    p_ingest.add_argument("--query", required=True, help="Free-text arXiv search query")
+    p_ingest.add_argument("--max-results", type=int, default=100)
+    p_ingest.add_argument("--start", type=int, default=0, help="Offset into arXiv's result set")
+    p_ingest.add_argument("--category", default=None, help="Optional arXiv category, e.g. cs.LG")
     p_ingest.add_argument(
-        "--raw-dir", default = str(RAW_DIR), help = "Where to save raw arXiv API responses"
+        "--raw-dir", default=str(RAW_DIR), help="Where to save raw arXiv API responses"
     )
     p_ingest.add_argument(
-        "--no-raw", action = "store_true", help = "Skip saving raw API responses"
+        "--no-raw", action="store_true", help="Skip saving raw API responses"
     )
-    p_ingest.set_defaults(func = cmd_ingest)
+    p_ingest.set_defaults(func=cmd_ingest)
 
-    p_search = subparsers.add_parser("search", help = "Semantic search over the FAISS index")
-    p_search.add_argument("query", help = "Natural-language search query")
-    p_search.add_argument("--top-k", type = int, default = 10)
-    p_search.set_defaults(func = cmd_search)
+    p_search = subparsers.add_parser(
+        "search", help="Search stored papers: semantic, keyword (BM25), or hybrid"
+    )
+    p_search.add_argument("query", help="Natural-language or keyword search query")
+    p_search.add_argument("--top-k", type=int, default=10)
+    p_search.add_argument(
+        "--mode",
+        choices=["semantic", "keyword", "hybrid"],
+        default="semantic",
+        help="Retrieval mode (default: semantic, matches Version 1 behavior)",
+    )
+    p_search.add_argument(
+        "--alpha",
+        type=float,
+        default=0.5,
+        help="Hybrid weighting in [0,1]: hybrid_score = alpha*semantic + (1-alpha)*keyword "
+        "(hybrid mode only)",
+    )
+    p_search.add_argument(
+        "--candidate-k",
+        type=int,
+        default=50,
+        help="Candidates retrieved from each retriever before merging (hybrid mode only)",
+    )
+    p_search.set_defaults(func=cmd_search)
 
     return parser
 
