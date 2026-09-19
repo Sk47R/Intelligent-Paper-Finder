@@ -39,9 +39,47 @@ def test_search_defaults_to_semantic_mode():
 def test_search_parses_hybrid_mode_flags():
     parser = build_parser()
     args = parser.parse_args(
-        ["search", "transformer in NLP", "--mode", "hybrid", "--alpha", "0.7", "--candidate-k", "50", "--top-k", "10"]
+        [
+            "search",
+            "transformer in NLP",
+            "--mode",
+            "hybrid",
+            "--alpha",
+            "0.7",
+            "--candidate-k",
+            "50",
+            "--top-k",
+            "10",
+        ]
     )
     assert args.mode == "hybrid"
     assert args.alpha == 0.7
+    assert args.candidate_k == 50
+    assert args.top_k == 10
+
+
+def test_search_rerank_flag_defaults_to_false():
+    parser = build_parser()
+    args = parser.parse_args(["search", "transformer architectures"])
+    assert args.rerank is False
+
+
+def test_search_parses_rerank_flag_with_hybrid_mode():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "search",
+            "transformer architectures for NLP",
+            "--mode",
+            "hybrid",
+            "--candidate-k",
+            "50",
+            "--top-k",
+            "10",
+            "--rerank",
+        ]
+    )
+    assert args.rerank is True
+    assert args.mode == "hybrid"
     assert args.candidate_k == 50
     assert args.top_k == 10
