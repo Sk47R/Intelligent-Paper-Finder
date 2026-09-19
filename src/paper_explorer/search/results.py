@@ -13,6 +13,7 @@ class SearchResult:
     semantic_score: float | None = None
     keyword_score: float | None = None
     hybrid_score: float | None = None
+    rerank_score: float | None = None
 
     def short_abstract(self, max_chars: int = 220) -> str:
         text = self.paper.abstract.strip()
@@ -37,4 +38,6 @@ class SearchResult:
             d["keyword_score"] = f"{self.keyword_score:.3f}"
         if self.hybrid_score is not None:
             d["hybrid_score"] = f"{self.hybrid_score:.3f}"
+        if self.rerank_score is not None:
+            d["rerank_score"] = f"{self.rerank_score:.3f}"
         return d
