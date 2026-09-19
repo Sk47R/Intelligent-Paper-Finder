@@ -5,6 +5,8 @@ from paper_explorer.embeddings.embedding_model import EmbeddingModel
 from paper_explorer.search.bm25_index import BM25Index
 from paper_explorer.search.hybrid import HybridSearcher
 from paper_explorer.search.index import VectorIndex
+from paper_explorer.search.pipeline import run_search
+from paper_explorer.search.reranker import CrossEncoderReranker, Reranker, RerankerLoadError
 from paper_explorer.search.results import SearchResult
 from paper_explorer.search.searcher import PaperSearcher
 from paper_explorer.summarize.topic_summary import Topic, TopicSummarizer
@@ -20,8 +22,12 @@ __all__ = [
     "PaperSearcher",
     "BM25Index",
     "HybridSearcher",
+    "run_search",
+    "Reranker",
+    "CrossEncoderReranker",
+    "RerankerLoadError",
     "Topic",
     "TopicSummarizer",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

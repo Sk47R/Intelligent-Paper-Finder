@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import argparse
 import logging
 import sys
-import numpy as np
 
-from __future__ import annotations
+import numpy as np
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
@@ -21,6 +22,8 @@ from paper_explorer.embeddings.embedding_model import EmbeddingModel
 from paper_explorer.search.bm25_index import BM25Index
 from paper_explorer.search.hybrid import HybridSearcher
 from paper_explorer.search.index import VectorIndex
+from paper_explorer.search.pipeline import run_search
+from paper_explorer.search.reranker import CrossEncoderReranker, RerankerLoadError
 from paper_explorer.search.results import SearchResult
 from paper_explorer.search.searcher import PaperSearcher
 
@@ -35,6 +38,14 @@ def _setup_logging(verbose: bool) -> None:
         handlers=[RichHandler(console=console, show_path=False)],
         force=True,
     )
+
+
+def _load_vector_index(args: argparse.Namespace) -> VectorIndex:
+    try:
+        return VectorIndex.load(args.index, args.id_map)
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        console.print(f"[red]No FAISS index found at {args.index}. Run `ingest` first.[/red]")
+        raise SystemExit(1) from exc
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -93,67 +104,86 @@ def cmd_search(args: argparse.Namespace) -> None:
 
     semantic_searcher = None
     if args.mode in ("semantic", "hybrid"):
-        try:
-            vector_index = VectorIndex.load(args.index, args.id_map)
-        except (FileNotFoundError, OSError, RuntimeError) as exc:
-            console.print(f"[red]No FAISS index found at {args.index}. Run `ingest` first.[/red]")
-            raise SystemExit(1) from exc
+        vector_index = _load_vector_index(args)
         semantic_searcher = PaperSearcher(store=store, index=vector_index)
 
     hybrid_searcher = HybridSearcher(store=store, bm25_index=bm25_index, searcher=semantic_searcher)
 
+    reranker = None
+    if args.rerank:
+        try:
+            reranker = CrossEncoderReranker()
+        except RerankerLoadError as exc:
+            console.print(f"[red]Failed to load reranker:[/red] {exc}")
+            raise SystemExit(1) from exc
+
     try:
-        results = hybrid_searcher.search(
+        results = run_search(
+            hybrid_searcher,
             args.query,
             mode=args.mode,
             top_k=args.top_k,
             alpha=args.alpha,
             candidate_k=args.candidate_k,
+            rerank=args.rerank,
+            reranker=reranker,
         )
     except (ValueError, RuntimeError) as exc:
         console.print(f"[red]{exc}[/red]")
         raise SystemExit(1) from exc
 
-    _print_results(results, mode=args.mode)
+    if args.rerank:
+        console.print(
+            f"[dim]Reranked {len(results)} result(s) from up to "
+            f"{max(args.candidate_k, args.top_k)} first-stage candidates[/dim]"
+        )
+
+    _print_results(results, mode=args.mode, reranked=args.rerank)
 
 
-def _print_results(results: list[SearchResult], mode: str = "semantic") -> None:
+def _print_results(
+    results: list[SearchResult], mode: str = "semantic", reranked: bool = False
+) -> None:
     if not results:
         console.print("[yellow]No results.[/yellow]")
         return
 
     show_breakdown = mode == "hybrid"
+    title = f"Search Results ({mode}{' + reranked' if reranked else ''})"
 
-    table = Table(title=f"Search Results ({mode})")
+    table = Table(title=title)
     table.add_column("Rank", justify="right")
     if show_breakdown:
         table.add_column("Semantic", justify="right")
         table.add_column("Keyword", justify="right")
-        table.add_column("Hybrid", justify="right")
+        table.add_column("Retrieval", justify="right")
     else:
-        table.add_column("Score", justify="right")
+        table.add_column("Retrieval", justify="right")
+    if reranked:
+        table.add_column("Rerank", justify="right")
     table.add_column("arXiv ID")
     table.add_column("Title")
     table.add_column("Published")
 
     for r in results:
         d = r.to_display_dict()
+        row = [str(d["rank"])]
         if show_breakdown:
-            table.add_row(
-                str(d["rank"]),
-                d.get("semantic_score", "-"),
-                d.get("keyword_score", "-"),
-                d.get("hybrid_score", "-"),
-                d["arxiv_id"],
-                d["title"],
-                d["published"],
-            )
+            row += [d.get("semantic_score", "-"), d.get("keyword_score", "-"), d["score"]]
         else:
-            table.add_row(str(d["rank"]), d["score"], d["arxiv_id"], d["title"], d["published"])
+            row += [d["score"]]
+        if reranked:
+            row += [d.get("rerank_score", "-")]
+        row += [d["arxiv_id"], d["title"], d["published"]]
+        table.add_row(*row)
     console.print(table)
 
     for r in results:
-        console.print(f"\n[bold]{r.rank}. {r.paper.title}[/bold]  (score: {r.score:.3f})")
+        line = f"\n[bold]{r.rank}. {r.paper.title}[/bold]  (retrieval: {r.score:.3f}"
+        if r.rerank_score is not None:
+            line += f", rerank: {r.rerank_score:.3f}"
+        line += ")"
+        console.print(line)
         console.print(f"   Authors: {', '.join(r.paper.authors) or 'n/a'}")
         console.print(f"   {r.paper.abstract_url}")
         console.print(f"   {r.short_abstract()}")
@@ -161,7 +191,7 @@ def _print_results(results: list[SearchResult], mode: str = "semantic") -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="paper_explorer", description="Intelligent Research Paper Explorer (Version 2)"
+        prog="paper_explorer", description="Intelligent Research Paper Explorer (Version 3)"
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument(
@@ -185,13 +215,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument(
         "--raw-dir", default=str(RAW_DIR), help="Where to save raw arXiv API responses"
     )
-    p_ingest.add_argument(
-        "--no-raw", action="store_true", help="Skip saving raw API responses"
-    )
+    p_ingest.add_argument("--no-raw", action="store_true", help="Skip saving raw API responses")
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_search = subparsers.add_parser(
-        "search", help="Search stored papers: semantic, keyword (BM25), or hybrid"
+        "search", help="Search stored papers: semantic, keyword (BM25), or hybrid; optional rerank"
     )
     p_search.add_argument("query", help="Natural-language or keyword search query")
     p_search.add_argument("--top-k", type=int, default=10)
@@ -212,7 +240,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidate-k",
         type=int,
         default=50,
-        help="Candidates retrieved from each retriever before merging (hybrid mode only)",
+        help="Candidates retrieved per retriever before merging (hybrid mode) and/or handed "
+        "to the reranker (--rerank, any mode)",
+    )
+    p_search.add_argument(
+        "--rerank",
+        action="store_true",
+        help="Apply cross-encoder reranking to the first-stage candidates before returning "
+        "the top --top-k results",
     )
     p_search.set_defaults(func=cmd_search)
 
